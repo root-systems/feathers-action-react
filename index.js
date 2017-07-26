@@ -2,10 +2,13 @@ import { Component, createElement } from 'react'
 import { connect as connectRedux } from 'react-redux'
 import { bindActionCreators as bindDispatchActionCreators } from 'redux'
 import createCid from 'incremental-id'
-import { is, pipe, compose, merge, map, mapObjIndexed, partialRight } from 'ramda'
+import { is, pipe, compose, merge, map, mapObjIndexed, partialRight, filter, either, has, length, equals, not, keys, pick, complement } from 'ramda'
 
 const { isArray } = Array
 const isFunction = is(Function)
+
+const pickPending = filter(complement(either(has('result'), has('error'))))
+const hasKeys = pipe(keys, length, equals(0), not)
 
 // feathers-action-react
 export function connect (options) {
@@ -34,6 +37,7 @@ function createReduxConnector (options) {
   const reduxConnector = connectRedux(
     function mapStateToProps (state, ownProps) {
       return {
+        requests: state.feathers,
         selected: selector(state, ownProps)
       }
     },
@@ -59,7 +63,8 @@ function createFeathersConnector (options) {
       constructor (props, context) {
         super(props, context)
 
-        this.cancels = null
+        this.cancels = []
+        this.cids = []
 
         this.query = query
         this.shouldQueryAgain = shouldQueryAgain || alwaysFalse
@@ -73,8 +78,18 @@ function createFeathersConnector (options) {
 
       componentWillReceiveProps (nextProps) {
         // reset state if component should re-fetch
-        const prevProps = this.props
-        const queryAgain = this.shouldQueryAgain(prevProps, nextProps)
+        const cids = this.cids
+        const pickCids = pick(cids)
+        const requests = pickCids(nextProps.requests)
+        const pending = pickPending(requests)
+        const isPending = hasKeys(pending)
+        const status = {
+          cids,
+          requests,
+          pending,
+          isPending
+        }
+        const queryAgain = this.shouldQueryAgain(nextProps, status)
         // perform re-fetch
         if (queryAgain) this.fetch()
       }
@@ -90,9 +105,8 @@ function createFeathersConnector (options) {
       }
 
       fetch () {
-        if (this.cancels != null) {
-          this.cancel()
-        }
+        this.cancel()
+
         var queryDescriptors = this.query
         if (isFunction(queryDescriptors)) {
           queryDescriptors = this.query(this.props)
@@ -100,20 +114,26 @@ function createFeathersConnector (options) {
         if (!isArray(queryDescriptors)) {
           queryDescriptors = [queryDescriptors]
         }
-        this.cancels = queryDescriptors.map(descriptor => {
+
+        this.cancels = []
+        this.cids = []
+        queryDescriptors.forEach(descriptor => {
           const { service, id, params } = descriptor
           const method = id ? 'get' : 'find'
           const action = this.props.actions[service][method]
           const cid = id ? action(id, params) : action(params)
+          this.cids.push(cid)
           const cancelAction = this.props.actions[service].complete
           const cancel = () => cancelAction(cid)
-          return cancel
+          this.cancels.push(cancel)
         })
       }
 
       cancel () {
-        this.cancels.forEach(cancel => cancel())
-        this.cancels = null
+        var cancels = this.cancels
+        this.cancels = []
+        this.cids = []
+        cancels.forEach(cancel => cancel())
       }
     }
   }
