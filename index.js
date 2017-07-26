@@ -2,7 +2,7 @@ import { Component, createElement } from 'react'
 import { connect as connectRedux } from 'react-redux'
 import { bindActionCreators as bindDispatchActionCreators } from 'redux'
 import createCid from 'incremental-id'
-import { is, pipe, compose, merge, map, partialRight } from 'ramda'
+import { is, pipe, compose, merge, map, mapObjIndexed, partialRight } from 'ramda'
 
 const { isArray } = Array
 const isFunction = is(Function)
@@ -17,7 +17,10 @@ export function connect (options) {
   return compose(reduxConnector, feathersConnector)
 }
 
-const bindCidToActionCreators = map(action => {
+const bindCidToActionCreators = mapObjIndexed((action, name) => {
+  // don't bind cid to complete action
+  if (name === 'complete') return action
+
   return (...args) => {
     const cid = createCid()
     action(cid, ...args)
