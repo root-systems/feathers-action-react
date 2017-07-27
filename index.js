@@ -1,8 +1,29 @@
-import { Component, createElement } from 'react'
-import { connect as connectRedux } from 'react-redux'
-import { bindActionCreators as bindDispatchActionCreators } from 'redux'
-import createCid from 'incremental-id'
-import { is, pipe, compose, merge, map, mapObjIndexed, partialRight, filter, either, has, length, equals, not, keys, pick, complement } from 'ramda'
+const { createElement } = require('react')
+const compose = require('recompose/compose').default
+const withState = require('recompose/withState').default
+const lifecycle = require('recompose/lifecycle').default
+const { connect: connectRedux } = require('react-redux')
+const { bindActionCreators: bindDispatchActionCreators } = require('redux')
+const createCid = require('incremental-id')
+const is = require('ramda/src/is')
+const pipe = require('ramda/src/pipe')
+const mergeAll = require('ramda/src/mergeAll')
+const map = require('ramda/src/map')
+const mapObjIndexed = require('ramda/src/mapObjIndexed')
+const partialRight = require('ramda/src/partialRight')
+const filter = require('ramda/src/filter')
+const either = require('ramda/src/either')
+const has = require('ramda/src/has')
+const length = require('ramda/src/length')
+const equals = require('ramda/src/equals')
+const not = require('ramda/src/not')
+const keys = require('ramda/src/keys')
+const pick = require('ramda/src/pick')
+const complement = require('ramda/src/complement')
+
+module.exports = {
+  connect
+}
 
 const { isArray } = Array
 const isFunction = is(Function)
@@ -11,7 +32,7 @@ const pickPending = filter(complement(either(has('result'), has('error'))))
 const hasKeys = pipe(keys, length, equals(0), not)
 
 // feathers-action-react
-export function connect (options) {
+function connect (options) {
   const { selector, actions, query, shouldQueryAgain } = options
 
   const reduxConnector = createReduxConnector({ selector, actions })
@@ -37,6 +58,7 @@ function createReduxConnector (options) {
   const reduxConnector = connectRedux(
     function mapStateToProps (state, ownProps) {
       return {
+        ownProps,
         requests: state.feathers,
         selected: selector(state, ownProps)
       }
@@ -56,85 +78,85 @@ function createReduxConnector (options) {
 }
 
 function createFeathersConnector (options) {
-  const { query, shouldQueryAgain } = options
+  const { query, shouldQueryAgain = alwaysFalse } = options
 
   const feathersConnector = (component) => {
-    return class ConnectedFeathers extends Component {
-      constructor (props, context) {
-        super(props, context)
+    return compose(
+      withState('cids', 'setCids', []),
+      withState('cancels', 'setCancels', []),
+      lifecycle({
+        componentDidMount () {
+          fetch(this.props)
+        },
 
-        this.cancels = []
-        this.cids = []
+        componentWillReceiveProps (nextProps) {
+          // reset state if component should re-fetch
+          const { cids, requests: allRequests } = nextProps
+          const pickCids = pick(cids)
+          const requests = pickCids(allRequests)
+          const pending = pickPending(requests)
+          const isPending = hasKeys(pending)
+          const status = {
+            cids,
+            requests,
+            pending,
+            isPending
+          }
+          const queryAgain = shouldQueryAgain(nextProps, status)
+          // perform re-fetch
+          if (queryAgain) fetch(nextProps)
+        },
 
-        this.query = query
-        this.shouldQueryAgain = shouldQueryAgain || alwaysFalse
-
-        this.component = component
-      }
-
-      componentDidMount () {
-        this.fetch()
-      }
-
-      componentWillReceiveProps (nextProps) {
-        // reset state if component should re-fetch
-        const cids = this.cids
-        const pickCids = pick(cids)
-        const requests = pickCids(nextProps.requests)
-        const pending = pickPending(requests)
-        const isPending = hasKeys(pending)
-        const status = {
-          cids,
-          requests,
-          pending,
-          isPending
+        componentWillUnmount () {
+          cancel(this.props)
         }
-        const queryAgain = this.shouldQueryAgain(nextProps, status)
-        // perform re-fetch
-        if (queryAgain) this.fetch()
+      })
+    )(props => {
+      const { selected, ownProps, actions } = props
+      const componentProps = mergeAll([
+        selected,
+        ownProps,
+        { actions }
+      ])
+      return createElement(component, componentProps)
+    })
+
+    function fetch (props) {
+      cancel(props)
+
+      var queryDescriptors = query
+      if (isFunction(queryDescriptors)) {
+        queryDescriptors = query(props)
+      }
+      if (!isArray(queryDescriptors)) {
+        queryDescriptors = [queryDescriptors]
       }
 
-      componentWillUnmount () {
-        this.cancel()
-      }
+      var cancels = []
+      var cids = []
 
-      render () {
-        const { actions, selected } = this.props
-        const props = merge(selected, { actions })
-        return createElement(this.component, props)
-      }
+      queryDescriptors.forEach(descriptor => {
+        const { service, id, params } = descriptor
+        const method = id ? 'get' : 'find'
+        const action = props.actions[service][method]
+        const cid = id ? action(id, params) : action(params)
+        cids.push(cid)
+        const cancelAction = props.actions[service].complete
+        const cancel = () => cancelAction(cid)
+        cancels.push(cancel)
+      })
 
-      fetch () {
-        this.cancel()
+      const { setCancels, setCids } = props
 
-        var queryDescriptors = this.query
-        if (isFunction(queryDescriptors)) {
-          queryDescriptors = this.query(this.props)
-        }
-        if (!isArray(queryDescriptors)) {
-          queryDescriptors = [queryDescriptors]
-        }
+      setCancels(cancels)
+      setCids(cids)
+    }
 
-        this.cancels = []
-        this.cids = []
-        queryDescriptors.forEach(descriptor => {
-          const { service, id, params } = descriptor
-          const method = id ? 'get' : 'find'
-          const action = this.props.actions[service][method]
-          const cid = id ? action(id, params) : action(params)
-          this.cids.push(cid)
-          const cancelAction = this.props.actions[service].complete
-          const cancel = () => cancelAction(cid)
-          this.cancels.push(cancel)
-        })
-      }
-
-      cancel () {
-        var cancels = this.cancels
-        this.cancels = []
-        this.cids = []
-        cancels.forEach(cancel => cancel())
-      }
+    function cancel (props) {
+      const { cancels, setCancels, setCids } = props
+      setCancels([])
+      setCids([])
+      cancels.forEach(cancel => cancel())
     }
   }
 
