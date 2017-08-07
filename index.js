@@ -18,6 +18,7 @@ const length = require('ramda/src/length')
 const equals = require('ramda/src/equals')
 const not = require('ramda/src/not')
 const keys = require('ramda/src/keys')
+const prop = require('ramda/src/prop')
 const pick = require('ramda/src/pick')
 const complement = require('ramda/src/complement')
 
@@ -28,7 +29,9 @@ module.exports = {
 const { isArray } = Array
 const isFunction = is(Function)
 
-const pickPending = filter(complement(either(has('result'), has('error'))))
+const isReady = prop('isReady')
+const isPending = complement(isReady)
+const pickPending = filter(isPending)
 const hasKeys = pipe(keys, length, equals(0), not)
 
 // feathers-action-react
