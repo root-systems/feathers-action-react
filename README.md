@@ -42,7 +42,7 @@ export default connect({
 - `query`: an object to describe a feathers `find` or `get` service method call, or an array of these, or a function of shape `(props) => query`.
   - for find: `{ service, params }`
   - for get: `{ service, id, params }`
-- `shouldQueryAgain`: a function of shape `(props, status) => Boolean` for whether we should re-fetch on updated props
+- `shouldQueryAgain`: a function of shape `(props, status, prevProps, prevStatus) => Boolean` for whether we should re-fetch on updated props
 
 `hoc` is a "higher-order component": a function of shape `(component) => nextComponent`
 

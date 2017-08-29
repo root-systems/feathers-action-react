@@ -111,18 +111,12 @@ function createFeathersConnector (options) {
 
         componentWillReceiveProps (nextProps) {
           // reset state if component should re-fetch
-          const { cids, requests: allRequests } = nextProps
-          const pickCids = pick(cids)
-          const requests = pickCids(allRequests)
-          const pending = pickPending(requests)
-          const isPending = hasKeys(pending)
-          const status = {
-            cids,
-            requests,
-            pending,
-            isPending
-          }
-          const queryAgain = shouldQueryAgain(nextProps, status)
+          const queryAgain = shouldQueryAgain(
+            nextProps,
+            getStatus(nextProps),
+            this.props,
+            getStatus(this.props)
+          )
           // perform re-fetch
           if (queryAgain) fetch(nextProps)
         },
@@ -189,3 +183,18 @@ function createFeathersConnector (options) {
 }
 
 function alwaysFalse () { return false }
+
+function getStatus (props) {
+  const { cids, requests: allRequests } = props
+  const pickCids = pick(cids)
+  const requests = pickCids(allRequests)
+  const pending = pickPending(requests)
+  const isPending = hasKeys(pending)
+  const status = {
+    cids,
+    requests,
+    pending,
+    isPending
+  }
+  return status
+}
