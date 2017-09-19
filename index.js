@@ -43,7 +43,12 @@ const isShouldQueryAgain = isFunction
 
 // feathers-action-react
 function connect (options) {
-  const { selector, actions, query, shouldQueryAgain } = options
+  const {
+    selector = (state) => state,
+    actions = {},
+    query = [],
+    shouldQueryAgain = alwaysFalse
+  } = options
 
   assert(isSelector(selector), 'options.selector is not a selector, expected function')
   assert(isActions(actions), 'options.actions is not actions, expected object')
@@ -93,7 +98,7 @@ function createReduxConnector (options) {
 }
 
 function createFeathersConnector (options) {
-  const { query, shouldQueryAgain = alwaysFalse } = options
+  const { query, shouldQueryAgain } = options
 
   const feathersConnector = (component) => {
     return compose(
