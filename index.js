@@ -5,6 +5,7 @@ const lifecycle = require('recompose/lifecycle').default
 const { connect: connectRedux } = require('react-redux')
 const { bindActionCreators: bindDispatchActionCreators } = require('redux')
 const createCid = require('incremental-id')
+const assert = require('assert')
 const is = require('ramda/src/is')
 const pipe = require('ramda/src/pipe')
 const mergeAll = require('ramda/src/mergeAll')
@@ -26,17 +27,33 @@ module.exports = {
   connect
 }
 
-const { isArray } = Array
 const isFunction = is(Function)
+const isArray = is(Array)
+const isObject = is(Object)
 
 const isReady = prop('isReady')
 const isPending = complement(isReady)
 const pickPending = filter(isPending)
 const hasKeys = pipe(keys, length, equals(0), not)
 
+const isSelector = isFunction
+const isActions = isObject
+const isQuery = either(either(isFunction, isArray), isObject)
+const isShouldQueryAgain = isFunction
+
 // feathers-action-react
 function connect (options) {
-  const { selector, actions, query, shouldQueryAgain } = options
+  const {
+    selector = (state) => state,
+    actions = {},
+    query = [],
+    shouldQueryAgain = alwaysFalse
+  } = options
+
+  assert(isSelector(selector), 'options.selector is not a selector, expected function')
+  assert(isActions(actions), 'options.actions is not actions, expected object')
+  assert(isQuery(query), 'options.query is not a query, expected function, array or object')
+  assert(isShouldQueryAgain(shouldQueryAgain), 'options.shouldQueryAgain is not shouldQueryAgain, expected function')
 
   const reduxConnector = createReduxConnector({ selector, actions })
   const feathersConnector = createFeathersConnector({ query, shouldQueryAgain })
@@ -81,7 +98,7 @@ function createReduxConnector (options) {
 }
 
 function createFeathersConnector (options) {
-  const { query, shouldQueryAgain = alwaysFalse } = options
+  const { query, shouldQueryAgain } = options
 
   const feathersConnector = (component) => {
     return compose(
