@@ -157,6 +157,11 @@ function createFeathersConnector (options) {
 
       queryDescriptors.forEach(descriptor => {
         const { service, id, params } = descriptor
+
+        if (!props.actions[service]) {
+          throw new Error(`feathers-action-react/index: Expected to be provided respective actions for service ${service} in the actions object`)
+        }
+        
         const method = id ? 'get' : 'find'
         const action = props.actions[service][method]
         const cid = id ? action(id, params) : action(params)
