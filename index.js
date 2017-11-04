@@ -1,69 +1,113 @@
 const { createElement } = require('react')
 const compose = require('recompose/compose').default
-const withState = require('recompose/withState').default
+const withStateHandlers = require('recompose/withStateHandlers').default
 const lifecycle = require('recompose/lifecycle').default
 const { connect: connectRedux } = require('react-redux')
 const { bindActionCreators: bindDispatchActionCreators } = require('redux')
 const createCid = require('incremental-id')
 const assert = require('assert')
 const is = require('ramda/src/is')
+const isNil = require('ramda/src/isNil')
+const isEmpty = require('ramda/src/isEmpty')
 const pipe = require('ramda/src/pipe')
 const mergeAll = require('ramda/src/mergeAll')
 const map = require('ramda/src/map')
 const mapObjIndexed = require('ramda/src/mapObjIndexed')
 const partialRight = require('ramda/src/partialRight')
-const filter = require('ramda/src/filter')
 const either = require('ramda/src/either')
-const has = require('ramda/src/has')
-const length = require('ramda/src/length')
-const equals = require('ramda/src/equals')
 const not = require('ramda/src/not')
-const keys = require('ramda/src/keys')
 const prop = require('ramda/src/prop')
-const pick = require('ramda/src/pick')
-const complement = require('ramda/src/complement')
+const path = require('ramda/src/path')
+const forEach = require('ramda/src/forEach')
+const values = require('ramda/src/values')
+const indexBy = require('ramda/src/indexBy')
+const nthArg = require('ramda/src/nthArg')
+const assoc = require('ramda/src/assoc')
+const omit = require('ramda/src/omit')
+const all = require('ramda/src/all')
+const __ = require('ramda/src/__')
+const merge = require('ramda/src/merge')
+const ifElse = require('ramda/src/ifElse')
+const { createSelector, createStructuredSelector } = require('reselect')
+const deepEqual = require('fast-deep-equal')
 
 module.exports = {
   connect
 }
 
+const indexByName = indexBy(prop('name'))
+
 const isFunction = is(Function)
 const isArray = is(Array)
 const isObject = is(Object)
 
-const isReady = prop('isReady')
-const isPending = complement(isReady)
-const pickPending = filter(isPending)
-const hasKeys = pipe(keys, length, equals(0), not)
+//const shouldBindCid = prop('shouldBindCid')
+const shouldBindCid = () => true
 
 const isSelector = isFunction
 const isActions = isObject
-const isQuery = either(either(isFunction, isArray), isObject)
-const isShouldQueryAgain = isFunction
+const isQuery = either(isArray, isObject)
+
+const getFeathersRequests = prop('feathers')
+const getStateAndProps = (state, props) => [state, props]
 
 // feathers-action-react
 function connect (options) {
   const {
-    selector = (state) => state,
+    selector = (state, props) => {},
     actions = {},
-    query = [],
-    shouldQueryAgain = alwaysFalse
+    query: ogQuery = []
   } = options
 
   assert(isSelector(selector), 'options.selector is not a selector, expected function')
   assert(isActions(actions), 'options.actions is not actions, expected object')
-  assert(isQuery(query), 'options.query is not a query, expected function, array or object')
-  assert(isShouldQueryAgain(shouldQueryAgain), 'options.shouldQueryAgain is not shouldQueryAgain, expected function')
+  assert(isQuery(ogQuery), 'options.query is not a query, expected array or object')
 
+  // TODO assert(hasAllActions)
+  // if (!props.actions[service]) {
+  //   throw new Error(`feathers-action-react/index: Expected to be provided respective actions for service ${service} in the actions object`)
+  // }
+
+  // TODO assert(allQuerysHaveNames)
+  const query = nameQuery(ogQuery)
+
+  const stateConnector = withStateHandlers(
+    {
+      query,
+      cidByQuery: {},
+      ownProps: (props) => props
+    },
+    {
+      setCidByQuery: ({ cidByQuery }) => (queryName, cid) => ({
+        cidByQuery: merge({
+          [queryName]: cid
+        }, cidByQuery)
+      })
+    }
+  )
   const reduxConnector = createReduxConnector({ selector, actions })
-  const feathersConnector = createFeathersConnector({ query, shouldQueryAgain })
+  const feathersConnector = createFeathersConnector({ query })
 
-  return compose(reduxConnector, feathersConnector)
+  return compose(
+    stateConnector,
+    reduxConnector,
+    feathersConnector
+  )
+}
+
+function nameQuery (query) {
+  if (isArray(query)) {
+    return query.map(nameQuery)
+  }
+  return merge(query, {
+    name: createCid()
+  })
 }
 
 const bindCidToActionCreators = mapObjIndexed((action, name) => {
   // don't bind cid to complete action
   if (name === 'complete') return action
+  if (not(shouldBindCid(action))) return action
 
   return (...args) => {
     const cid = createCid()
@@ -72,16 +116,110 @@ const bindCidToActionCreators = mapObjIndexed((action, name) => {
   }
 })
 
+const resolveQueryArg = (argName) => (query) => (state, props) => {
+  const arg = query[argName]
+  return (
+    isNil(arg)
+    ? null
+    : isFunction(arg)
+      ? arg(state, props)
+      : arg
+  )
+}
+
+const getRawQuerys = (state, props) => {
+  const { query } = props
+  return isArray(query) ? query : [query]
+}
+const getCidByQuery = (state, props) => {
+  return props.cidByQuery
+}
+const getQueryByName = createSelector(
+  getRawQuerys,
+  indexByName
+)
+const isReady = path(['request', 'isReady'])
+const getHasReadyDependenciesByQuery = createSelector(
+  getQueryByName,
+  (queryByName) => map(pipe(
+    prop('dependencies'),
+    ifElse(
+      either(isNil, isEmpty),
+      () => true,
+      all(pipe(
+        prop(__, queryByName),
+        isReady
+      ))
+    )
+  ))(queryByName)
+)
+const getQuerys = createSelector(
+  getQueryByName,
+  getCidByQuery,
+  getHasReadyDependenciesByQuery,
+  getFeathersRequests,
+  getStateAndProps,
+  (queryByName, cidByQuery, hasReadyDependenciesByQuery, requests, stateAndProps) => {
+    const enhanceQuerys = map(query => {
+      const cid = cidByQuery[query.name]
+      const isStarted = not(isNil(cid))
+      const hasReadyDependencies = hasReadyDependenciesByQuery[query.name]
+      // TODO clean up
+      const id = resolveQueryArg('id')(query)(...stateAndProps)
+      const params = resolveQueryArg('params')(query)(...stateAndProps)
+      var request, isReady, prevArgs
+      if (isStarted) {
+        request = requests[cid]
+        isReady = request.isReady
+        prevArgs = {
+          // TODO clean up
+          id: isNil(request.args.id) ? null: request.args.id,
+          params: isNil(request.args.params) ? null: request.args.params
+        }
+      } else {
+        isReady = false
+        prevArgs = null
+      }
+      const nextArgs = { id, params }
+      /*
+      const shouldRequest = hasReadyDependencies && (
+        not(isStarted) || not(deepEqual(prevArgs, nextArgs))
+      )
+      */
+      const shouldRequest = isNil(request)
+      const isSameArgs = deepEqual(prevArgs, nextArgs)
+      debugger
+      return merge(query, {
+        cid,
+        request,
+        id,
+        params,
+        isStarted,
+        hasReadyDependencies,
+        shouldRequest
+      })
+    })
+    return enhanceQuerys(queryByName)
+  }
+)
+
+/*
+const getOwnProps = pipe(
+  nthArg(1),
+  omit(['query', 'cidByQuery', 'setCidByQuery'])
+)
+*/
+
 function createReduxConnector (options) {
-  const { selector, actions } = options
+  const { selector, actions, query } = options
 
   const reduxConnector = connectRedux(
-    function mapStateToProps (state, ownProps) {
-      return {
-        ownProps,
-        requests: state.feathers,
-        selected: selector(state, ownProps)
-      }
+    function mapStateToProps (state, props) {
+      // use the original props passed into the top-level 
+      const selected = selector(state, props.ownProps)
+      // use react state handlers
+      const querys = getQuerys(state, props)
+      return { selected, querys }
     },
     function mapDispatchToProps (dispatch) {
       const bindActionCreators = map(pipe(
@@ -97,41 +235,23 @@ function createReduxConnector (options) {
   return reduxConnector
 }
 
+
+
 function createFeathersConnector (options) {
-  const { query, shouldQueryAgain } = options
-
   const feathersConnector = (component) => {
-    return compose(
-      withState('cids', 'setCids', []),
-      withState('cancels', 'setCancels', []),
-      lifecycle({
-        componentDidMount () {
-          fetch(this.props)
-        },
+    return lifecycle({
+      componentDidMount () {
+        handleQuerys(this.props)
+      },
 
-        componentWillReceiveProps (nextProps) {
-          // reset state if component should re-fetch
-          const { cids, requests: allRequests } = nextProps
-          const pickCids = pick(cids)
-          const requests = pickCids(allRequests)
-          const pending = pickPending(requests)
-          const isPending = hasKeys(pending)
-          const status = {
-            cids,
-            requests,
-            pending,
-            isPending
-          }
-          const queryAgain = shouldQueryAgain(nextProps, status)
-          // perform re-fetch
-          if (queryAgain) fetch(nextProps)
-        },
+      componentWillReceiveProps (nextProps) {
+        handleQuerys(nextProps)
+      },
 
-        componentWillUnmount () {
-          cancel(this.props)
-        }
-      })
-    )(props => {
+      componentWillUnmount () {
+        cancelQuerys(this.props)
+      }
+    })(function ConnectedFeathers (props) {
       const { selected, ownProps, actions } = props
       const componentProps = mergeAll([
         selected,
@@ -141,51 +261,44 @@ function createFeathersConnector (options) {
       return createElement(component, componentProps)
     })
 
-    function fetch (props) {
-      cancel(props)
-
-      var queryDescriptors = query
-      if (isFunction(queryDescriptors)) {
-        queryDescriptors = query(props)
-      }
-      if (!isArray(queryDescriptors)) {
-        queryDescriptors = [queryDescriptors]
-      }
-
-      var cancels = []
-      var cids = []
-
-      queryDescriptors.forEach(descriptor => {
-        const { service, id, params } = descriptor
-
-        if (!props.actions[service]) {
-          throw new Error(`feathers-action-react/index: Expected to be provided respective actions for service ${service} in the actions object`)
-        }
-        
-        const method = id ? 'get' : 'find'
-        const action = props.actions[service][method]
-        const cid = id ? action(id, params) : action(params)
-        cids.push(cid)
-        const cancelAction = props.actions[service].complete
-        const cancel = () => cancelAction(cid)
-        cancels.push(cancel)
-      })
-
-      const { setCancels, setCids } = props
-
-      setCancels(cancels)
-      setCids(cids)
+    function handleQuerys (props) {
+      const handleEachQuery = pipe(
+        values,
+        forEach(query => {
+          if (query.shouldRequest) {
+            if (query.cid) {
+              cancelQuery(query, props)
+            }
+            requestQuery(query, props)
+          }
+        })
+      )
+      handleEachQuery(props.querys)
     }
 
-    function cancel (props) {
-      const { cancels, setCancels, setCids } = props
-      setCancels([])
-      setCids([])
-      cancels.forEach(cancel => cancel())
+    function requestQuery (query, { actions, setCidByQuery } ) {
+      const { name, service, id, params } = query
+      const method = id ? 'get' : 'find'
+      const action = actions[service][method]
+      const cid = id ? action(id, params) : action(params)
+      setCidByQuery(name, cid)
+    }
+
+    function cancelQuerys (props) {
+      const cancelEachQuery = forEach(query => {
+        cancelQuery(query, props)
+      })
+      return cancelEachQuery(props.querys)
+    }
+
+    function cancelQuery (query, { actions, setCidByQuery }) {
+      const { name, service, cid } = query
+      const serviceActions = actions[service]
+      const cancelAction = serviceActions.complete
+      cancelAction(cid)
+      setCidByQuery(name, null)
     }
   }
 
   return feathersConnector
 }
-
-function alwaysFalse () { return false }

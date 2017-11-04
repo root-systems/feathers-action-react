@@ -17,15 +17,40 @@ import Dogs from '../components/dogs'
 
 import { actions as dogActions } from '../'
 
-import { getIndexProps } from '../getters'
+import { getDogs, getCollars } from '../getters'
 
 export default connect({
-  selector: getIndexProps,
-  actions: { dogs: dogActions },
-  query: {
-    service: 'dogs',
-    params: {}
-  }
+  selector: createStructuredSelector({
+    dogs: getDogs,
+    collars: getCollars
+  }),
+  actions: {
+    dogs: dogActions
+  },
+  query: [
+    {
+      name: 'findAllDogs',
+      service: 'dogs',
+      params: {}
+    },
+    {
+      name: 'findCollarsForEachDog',
+      service: 'collars',
+      dependencies: [
+        'findAllDogs'
+      ],
+      params: (state, props) => {
+        const dogs = getDogs(state, props)
+        return {
+          params: {
+            dogId: {
+              $in: dogs.map(dog => dog.id)
+            }
+          }
+        }
+      }
+    }
+  ]
 })(Dogs)
 ```
 
