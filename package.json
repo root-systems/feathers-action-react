@@ -1,6 +1,6 @@
 {
   "name": "feathers-action-react",
-  "version": "2.2.2",
+  "version": "2.3.0",
   "description": "connect feathers-action to react data containers",
   "main": "index.js",
   "scripts": {
