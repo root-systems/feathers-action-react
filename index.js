@@ -140,7 +140,7 @@ function createFeathersConnector (options) {
 
       var queryDescriptors = query
       if (isFunction(queryDescriptors)) {
-        queryDescriptors = query(props)
+        queryDescriptors = query(props, getStatus(props))
       }
       if (!isArray(queryDescriptors)) {
         queryDescriptors = [queryDescriptors]
