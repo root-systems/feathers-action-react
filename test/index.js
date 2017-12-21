@@ -5,6 +5,7 @@ import configureStore from 'redux-mock-store'
 // import createModule from 'feathers-action'
 import Enzyme, { mount } from 'enzyme';
 import Adapter from 'enzyme-adapter-react-15';
+import assert from 'assert'
 
 import { connect } from '../'
 
@@ -82,6 +83,20 @@ test('component has expected ownProps', function (t) {
   const testing = wrapper.find(TestComponent).prop('testing')
   // IK: would it be better to have own props under { ownProps: {} } on the final component?
   t.deepEqual(testing, 123, 'ownProps did not deepEqual expected')
+})
+
+test('component throws if relevant actions for service not provided', function (t) {
+  const { generateWrapper } = t.context
+  const badConnectOfComponent = () => connect({
+    query: {
+      name: 'findAllDogs',
+      service: 'dogs',
+      params: {}
+    }
+  })(TestComponent)
+
+  const err = t.throws(badConnectOfComponent, assert.AssertionError, 'query was provided without relevant actions but component did not throw')
+  t.is(err.message, 'options.actions is missing service actions for services in options.query, expected relevant actions to be provided')
 })
 
 test('component executes a query on mount', function (t) {
