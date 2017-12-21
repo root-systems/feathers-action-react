@@ -29,6 +29,8 @@ const all = require('ramda/src/all')
 const __ = require('ramda/src/__')
 const merge = require('ramda/src/merge')
 const ifElse = require('ramda/src/ifElse')
+const find = require('ramda/src/find')
+const complement = require('ramda/src/complement')
 const { createSelector, createStructuredSelector } = require('reselect')
 const deepEqual = require('fast-deep-equal')
 
@@ -41,6 +43,7 @@ const indexByName = indexBy(prop('name'))
 const isFunction = is(Function)
 const isArray = is(Array)
 const isObject = is(Object)
+const isNotNil = complement(isNil)
 
 //const shouldBindCid = prop('shouldBindCid')
 const shouldBindCid = () => true
@@ -51,23 +54,41 @@ const isQuery = either(isArray, isObject)
 
 const getFeathersRequests = prop('feathers')
 const getStateAndOwnProps = (state, props) => [state, props.ownProps]
+const getQueryServices = ifElse(
+  isObject,
+  prop('service'),
+  map(prop('service'))
+)
+// TODO: IK: ramdaify
+const findMissingServices = (actions) => {
+  return find((service) => {
+    return isNil(actions[service])
+  })
+}
+// TODO: IK: ramdaify
+const hasAllActions = (actions, ogQuery) => {
+  if (isEmpty(ogQuery)) return true
+
+  const queryServices = getQueryServices(ogQuery)
+  if (isArray(queryServices)) {
+    return not(findMissingServices(actions)(queryServices))
+  }
+  return isNotNil(actions[queryServices])
+}
 
 // feathers-action-react
 function connect (options) {
   const {
     selector = (state, props) => {},
     actions = {},
-    query: ogQuery = []
+    query: ogQuery = [] // IK: consider whether this should just be named "queries" to avoid confusion later in this code, possibly at the expense of user confusion (maybe don't allow a single query object, always enforce an array, even of a single object)
   } = options
 
   assert(isSelector(selector), 'options.selector is not a selector, expected function')
   assert(isActions(actions), 'options.actions is not actions, expected object')
   assert(isQuery(ogQuery), 'options.query is not a query, expected array or object')
 
-  // TODO assert(hasAllActions)
-  // if (!props.actions[service]) {
-  //   throw new Error(`feathers-action-react/index: Expected to be provided respective actions for service ${service} in the actions object`)
-  // }
+  assert(hasAllActions(actions, ogQuery), 'options.actions is missing service actions for services in options.query, expected relevant actions to be provided')
 
   // TODO assert(allQuerysHaveNames)
   const query = nameQuery(ogQuery)
