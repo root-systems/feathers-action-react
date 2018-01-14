@@ -104,6 +104,7 @@ function createFeathersConnector (options) {
     return compose(
       withState('cids', 'setCids', []),
       withState('cancels', 'setCancels', []),
+      withState('prevProps', 'setPrevProps', props => props),
       lifecycle({
         componentDidMount () {
           fetch(this.props)
@@ -111,14 +112,18 @@ function createFeathersConnector (options) {
 
         componentWillReceiveProps (nextProps) {
           // reset state if component should re-fetch
-          const queryAgain = shouldQueryAgain(
+          const status = getStatus(nextProps)
+          const queryAgain = (!status.isPending) && shouldQueryAgain(
             nextProps,
-            getStatus(nextProps),
-            this.props,
+            status,
+            this.props.prevProps,
             getStatus(this.props)
           )
           // perform re-fetch
-          if (queryAgain) fetch(nextProps)
+          if (queryAgain) {
+            fetch(nextProps)
+            this.props.setPrevProps(nextProps)
+          }
         },
 
         componentWillUnmount () {
@@ -155,7 +160,7 @@ function createFeathersConnector (options) {
         if (!props.actions[service]) {
           throw new Error(`feathers-action-react/index: Expected to be provided respective actions for service ${service} in the actions object`)
         }
-        
+
         const method = id ? 'get' : 'find'
         const action = props.actions[service][method]
         const cid = id ? action(id, params) : action(params)
