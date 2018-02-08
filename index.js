@@ -118,15 +118,12 @@ const bindCidToActionCreators = mapObjIndexed((action, name) => {
   }
 })
 
-const resolveQueryArg = (argName) => (query) => (state, props) => {
+const resolveQueryArg = (argName) => (dft) => (query) => (state, props) => {
   const arg = query[argName]
-  return (
-    isNil(arg)
-    ? null
-    : isFunction(arg)
-      ? arg(state, props)
-      : arg
-  )
+  if (isNil(arg)) return dft
+  if (!isFunction(arg)) return arg
+  const result = arg(state, props)
+  return isNil(result) ? dft : result
 }
 
 const getRawQuerys = (state, props) => {
@@ -167,8 +164,8 @@ const getQuerys = createSelector(
       const isStarted = not(isNil(cid))
       const hasReadyDependencies = hasReadyDependenciesByQuery[query.name]
       // TODO clean up
-      const id = resolveQueryArg('id')(query)(state, ownProps)
-      const params = resolveQueryArg('params')(query)(state, ownProps)
+      const id = resolveQueryArg('id')(null)(query)(state, ownProps)
+      const params = resolveQueryArg('params')({})(query)(state, ownProps)
       var request, isReady, prevArgs
       if (isStarted) {
         request = requests[cid]
@@ -254,7 +251,6 @@ function createFeathersConnector (options) {
         { actions }
       ])
       console.log('render', componentProps)
-      return null
       return createElement(component, componentProps)
     })
   }
