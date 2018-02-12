@@ -1,4 +1,5 @@
 const { createElement } = require('react')
+const tap = require('ramda/src/tap')
 const compose = require('recompose/compose').default
 const withStateHandlers = require('recompose/withStateHandlers').default
 const withProps = require('recompose/withProps').default
@@ -18,6 +19,7 @@ const partialRight = require('ramda/src/partialRight')
 const either = require('ramda/src/either')
 const not = require('ramda/src/not')
 const prop = require('ramda/src/prop')
+const defaultTo = require('ramda/src/defaultTo')
 const path = require('ramda/src/path')
 const forEach = require('ramda/src/forEach')
 const values = require('ramda/src/values')
@@ -28,6 +30,7 @@ const omit = require('ramda/src/omit')
 const all = require('ramda/src/all')
 const __ = require('ramda/src/__')
 const merge = require('ramda/src/merge')
+const clone = require('ramda/src/clone')
 const ifElse = require('ramda/src/ifElse')
 const { createSelector, createStructuredSelector } = require('reselect')
 const deepEqual = require('fast-deep-equal')
@@ -78,11 +81,15 @@ function connect (options) {
   const stateConnector = withStateHandlers(
     {
       query,
-      cidByQuery: {}
+      cidByQuery: {},
+      argsByQuery: {}
     },
     {
       setCidByQuery: ({ cidByQuery }) => (queryName, cid) => ({
         cidByQuery: assoc(queryName, cid, cidByQuery)
+      }),
+      setArgsByQuery: ({ argsByQuery }) => (queryName, args) => ({
+        argsByQuery: assoc(queryName, args, argsByQuery)
       })
     }
   )
@@ -101,9 +108,8 @@ function nameQuery (query) {
   if (isArray(query)) {
     return query.map(nameQuery)
   }
-  return merge(query, {
-    name: createCid()
-  })
+  if (!isNil(query.name)) return query
+  return merge(query, { name: createCid() })
 }
 
 const bindCidToActionCreators = mapObjIndexed((action, name) => {
@@ -133,50 +139,81 @@ const getRawQuerys = (state, props) => {
 const getCidByQuery = (state, props) => {
   return props.cidByQuery
 }
+const getArgsByQuery = (state, props) => {
+  return props.argsByQuery
+}
+const getRequestByQuery = createSelector(
+  getCidByQuery,
+  getFeathersRequests,
+  (cidByQuery, requests) => {
+    const mapRequests = map(pipe(
+      cid => {
+        return requests[cid]
+      },
+      defaultTo(null)
+    ))
+    return mapRequests(cidByQuery)
+  }
+)
+const getIsReadyByQuery = createSelector(
+  getRequestByQuery,
+  ifElse(
+    isNil,
+    () => ({}),
+    map(
+      ifElse(
+        isNil,
+        () => false,
+        prop('isReady')
+      )
+    )
+  )
+)
 const getQueryByName = createSelector(
   getRawQuerys,
   indexByName
 )
-const isReady = path(['request', 'isReady'])
 const getHasReadyDependenciesByQuery = createSelector(
   getQueryByName,
-  (queryByName) => map(pipe(
+  getIsReadyByQuery,
+  (queryByName, isReadyByQuery) => map(pipe(
     prop('dependencies'),
     ifElse(
       either(isNil, isEmpty),
       () => true,
-      all(pipe(
-        prop(__, queryByName),
-        isReady
-      ))
+      all(prop(__, isReadyByQuery))
     )
   ))(queryByName)
 )
 const getQuerys = createSelector(
   getQueryByName,
   getCidByQuery,
+  getArgsByQuery,
+  getRequestByQuery,
+  getIsReadyByQuery,
   getHasReadyDependenciesByQuery,
-  getFeathersRequests,
   getStateAndOwnProps,
-  (queryByName, cidByQuery, hasReadyDependenciesByQuery, requests, [state, ownProps]) => {
+  (queryByName, cidByQuery, argsByQuery, requestByQuery, isReadyByQuery, hasReadyDependenciesByQuery, [state, ownProps]) => {
     const enhanceQuerys = map(query => {
       const cid = cidByQuery[query.name]
-      const isStarted = not(isNil(cid))
+      const args = argsByQuery[query.name]
+      const request = requestByQuery[query.name]
+      const isReady = isReadyByQuery[query.name]
       const hasReadyDependencies = hasReadyDependenciesByQuery[query.name]
+
+      const isStarted = not(isNil(cid))
       // TODO clean up
       const id = resolveQueryArg('id')(null)(query)(state, ownProps)
-      const params = resolveQueryArg('params')({})(query)(state, ownProps)
-      var request, isReady, prevArgs
+      // need to clone params because feathers mutates the params during a request.
+      const params = clone(resolveQueryArg('params')({})(query)(state, ownProps))
+      var prevArgs
       if (isStarted) {
-        request = requests[cid]
-        isReady = request.isReady
         prevArgs = {
           // TODO clean up
-          id: isNil(request.args.id) ? null: request.args.id,
-          params: isNil(request.args.params) ? null: request.args.params
+          id: isNil(args.id) ? null: args.id,
+          params: isNil(args.params) ? {}: args.params
         }
       } else {
-        isReady = false
         prevArgs = null
       }
       const nextArgs = { id, params }
@@ -184,6 +221,7 @@ const getQuerys = createSelector(
       const shouldRequest = hasReadyDependencies && (
         not(isStarted) || not(isSameArgs)
       )
+
       return merge(query, {
         cid,
         request,
@@ -270,8 +308,11 @@ function createFeathersConnector (options) {
     handleEachQuery(props.querys)
   }
 
-  function requestQuery (query, { actions, setCidByQuery } ) {
+  function requestQuery (query, { actions, setCidByQuery, setArgsByQuery } ) {
     const { name, service, id, params } = query
+    // need to clone args to check prevArgs == nextArgs,
+    // because feathers mutates the arguments during a request.
+    setArgsByQuery(name, clone({ id, params }))
     const method = id ? 'get' : 'find'
     const action = actions[service][method]
     const cid = id ? action(id, params) : action(params)
