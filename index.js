@@ -1,39 +1,43 @@
-const { createElement } = require('react')
-const tap = require('ramda/src/tap')
-const compose = require('recompose/compose').default
-const withStateHandlers = require('recompose/withStateHandlers').default
-const withProps = require('recompose/withProps').default
-const lifecycle = require('recompose/lifecycle').default
-const { connect: connectRedux } = require('react-redux')
-const { bindActionCreators: bindDispatchActionCreators } = require('redux')
-const createCid = require('incremental-id')
 const assert = require('assert')
+const __ = require('ramda/src/__')
+const all = require('ramda/src/all')
+const assoc = require('ramda/src/assoc')
+const both = require('ramda/src/both')
+const clone = require('ramda/src/clone')
+const createCid = require('incremental-id')
+const curry = require('ramda/src/curry')
+const defaultTo = require('ramda/src/defaultTo')
+const either = require('ramda/src/either')
+const forEach = require('ramda/src/forEach')
+const has = require('ramda/src/has')
+const ifElse = require('ramda/src/ifElse')
+const indexBy = require('ramda/src/indexBy')
 const is = require('ramda/src/is')
 const isNil = require('ramda/src/isNil')
 const isEmpty = require('ramda/src/isEmpty')
-const pipe = require('ramda/src/pipe')
-const mergeAll = require('ramda/src/mergeAll')
+const keys = require('ramda/src/keys')
 const map = require('ramda/src/map')
 const mapObjIndexed = require('ramda/src/mapObjIndexed')
-const partialRight = require('ramda/src/partialRight')
-const either = require('ramda/src/either')
-const not = require('ramda/src/not')
-const prop = require('ramda/src/prop')
-const defaultTo = require('ramda/src/defaultTo')
-const path = require('ramda/src/path')
-const forEach = require('ramda/src/forEach')
-const values = require('ramda/src/values')
-const indexBy = require('ramda/src/indexBy')
-const nthArg = require('ramda/src/nthArg')
-const assoc = require('ramda/src/assoc')
-const omit = require('ramda/src/omit')
-const all = require('ramda/src/all')
-const __ = require('ramda/src/__')
 const merge = require('ramda/src/merge')
-const clone = require('ramda/src/clone')
-const ifElse = require('ramda/src/ifElse')
-const { createSelector, createStructuredSelector } = require('reselect')
+const mergeAll = require('ramda/src/mergeAll')
+const not = require('ramda/src/not')
+const nthArg = require('ramda/src/nthArg')
+const omit = require('ramda/src/omit')
+const partialRight = require('ramda/src/partialRight')
+const path = require('ramda/src/path')
+const pipe = require('ramda/src/pipe')
+const prop = require('ramda/src/prop')
+const reduce = require('ramda/src/reduce')
+const values = require('ramda/src/values')
 const deepEqual = require('fast-deep-equal')
+const { createElement } = require('react')
+const compose = require('recompose/compose').default
+const lifecycle = require('recompose/lifecycle').default
+const withProps = require('recompose/withProps').default
+const withStateHandlers = require('recompose/withStateHandlers').default
+const { bindActionCreators: bindDispatchActionCreators } = require('redux')
+const { connect: connectRedux } = require('react-redux')
+const { createSelector, createStructuredSelector } = require('reselect')
 
 module.exports = {
   connect
@@ -41,16 +45,84 @@ module.exports = {
 
 const indexByName = indexBy(prop('name'))
 
-const isFunction = is(Function)
+const isAny = () => true
 const isArray = is(Array)
+const isFunction = is(Function)
 const isObject = is(Object)
+const isString = is(String)
 
-//const shouldBindCid = prop('shouldBindCid')
+const hasProperties = curry((propertyTypes, object) => {
+  return all(
+    (propertyName) => {
+      const propertyType = propertyTypes[propertyName]
+      const {
+        type,
+        required = false
+      } = propertyType
+      const objectValue = object[propertyName]
+      const isType = type(objectValue)
+      return isType
+    },
+    keys(propertyTypes)
+  )
+})
+
+const hasValues = curry((type, object) => {
+  return pipe(
+    values,
+    all(type)
+  )
+})
+
+// TODO make configurable somehow (either in connect options or attached to action creator?)
 const shouldBindCid = () => true
 
 const isSelector = isFunction
-const isActions = isObject
-const isQuery = either(isArray, isObject)
+const assertSelector = (selector) => {
+  assert(isSelector(selector), 'feathers-action-react: options.selector is not a selector, expected function')
+}
+
+const isActions = both(isObject, hasValues(both(isObject, hasValues(isFunction))))
+const assertActions = (actions) => {
+  assert(isActions(actions), 'feathers-action-react: options.actions is not actions, expected object of objects of functions')
+}
+
+const isQueryItem = both(
+  isObject,
+  hasProperties({
+    name: {
+      type: isString
+    },
+    service: {
+      type: isString,
+      required: true
+    },
+    params: {
+      type: either(isObject, isFunction)
+    },
+    id: {
+      type: either(isAny, isFunction)
+    },
+    dependencies: {
+      type: both(isArray, hasValues(isString))
+    }
+  })
+)
+const isQuery = either(isQueryItem, both(isArray, hasValues(isQueryItem)))
+const assertQuery = (query) => {
+  assert(isQuery(query), 'feathers-action-react: options.query is not a query, expected object or array of objects with properties: optional `name` string, required `service` string, optional `params` object or function, optional `id` any or function, optional `dependencies` array of strings.')
+}
+
+const assertQueryActions = curry((actions, query) => {
+  return forEach(
+    nextQuery => {
+      const { service } = nextQuery
+      assert(!isNil(actions[service]), `feathers-action-react: options.actions is missing actions for service ${service}`)
+      return nextQuery
+    },
+    query
+  )
+})
 
 const getFeathersRequests = prop('feathers')
 const getStateAndOwnProps = (state, props) => [state, props.ownProps]
@@ -63,16 +135,12 @@ function connect (options) {
     query: ogQuery = []
   } = options
 
-  assert(isSelector(selector), 'options.selector is not a selector, expected function')
-  assert(isActions(actions), 'options.actions is not actions, expected object')
-  assert(isQuery(ogQuery), 'options.query is not a query, expected array or object')
+  assertSelector(selector)
+  assertActions(actions)
 
-  // TODO assert(hasAllActions)
-  // if (!props.actions[service]) {
-  //   throw new Error(`feathers-action-react/index: Expected to be provided respective actions for service ${service} in the actions object`)
-  // }
+  assertQuery(ogQuery)
+  assertQueryActions(actions, ogQuery)
 
-  // TODO assert(allQuerysHaveNames)
   const query = nameQuery(ogQuery)
 
   const propsConnector = withProps(
@@ -337,3 +405,4 @@ function createFeathersConnector (options) {
 
   return feathersConnector
 }
+

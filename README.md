@@ -12,6 +12,10 @@ npm install --save feathers-action-react
 
 ```js
 import { connect } from 'feathers-action-react'
+import {
+  createSelector,
+  createStructuredSelector
+} from 'reselect'
 
 import Dogs from '../components/dogs'
 
@@ -39,15 +43,15 @@ export default connect({
       dependencies: [
         'findAllDogs'
       ],
-      params: (state, props) => {
-        const dogs = getDogs(state, props)
-        return {
+      params: createSelector(
+        getDogs,
+        (dogs) => ({
           params: {
             dogId: {
               $in: dogs.map(dog => dog.id)
             }
           }
-        }
+        })
       }
     }
   ]
@@ -62,12 +66,14 @@ export default connect({
 
 `options`:
 
-- `selector`: a function of shape `(state) => props`
+- `selector`: a function of shape `(state, props) => selected`
 - `actions`: an object where keys are feathers service names and values are objects of action creators
-- `query`: an object to describe a feathers `find` or `get` service method call, or an array of these, or a function of shape `(props) => query`.
-  - for find: `{ service, params }`
-  - for get: `{ service, id, params }`
-- `shouldQueryAgain`: a function of shape `(props, status) => Boolean` for whether we should re-fetch on updated props
+- `query`: an object or array of objects to describe feathers `find` or `get` service method calls
+  - `name`: (optional) name of query
+  - `service`: (required) name of feathers service to call
+  - `dependencies`: (optional) array of query names that this query depends on being run before is ready
+  - `params`: (optional) object or selector for object to use as `params` argument in feathers call
+  - `id`: (required if `get` call) value or selector for value to use as `id` argument in feathers call
 
 `hoc` is a "higher-order component": a function of shape `(component) => nextComponent`
 
