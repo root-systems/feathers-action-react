@@ -245,7 +245,7 @@ function createReduxConnector (options) {
       const selected = selector(state, props.ownProps)
       // use react state handlers
       const querys = getQuerys(state, props)
-      console.log('mapStateToProps', selected, querys)
+      // console.log('mapStateToProps', selected, querys)
       return { selected, querys }
     },
     function mapDispatchToProps (dispatch) {
@@ -268,17 +268,17 @@ function createFeathersConnector (options) {
   const feathersConnector = (component) => {
     return lifecycle({
       componentDidMount () {
-        console.log('mountProps', this.props)
+        // console.log('mountProps', this.props)
         handleQuerys(this.props)
       },
 
       componentDidUpdate (nextProps) {
-        console.log('componentDidUpdate', nextProps)
+        // console.log('componentDidUpdate', nextProps)
         handleQuerys(nextProps)
       },
 
       componentWillUnmount () {
-        console.log('unmountProps', this.props)
+        // console.log('unmountProps', this.props)
         cancelQuerys(this.props)
       }
     })(function ConnectedFeathers (props) {
@@ -288,7 +288,7 @@ function createFeathersConnector (options) {
         ownProps,
         { actions }
       ])
-      console.log('render', componentProps)
+      // console.log('render', componentProps)
       return createElement(component, componentProps)
     })
   }
