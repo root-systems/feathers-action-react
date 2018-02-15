@@ -310,12 +310,13 @@ function createFeathersConnector (options) {
 
   function requestQuery (query, { actions, setCidByQuery, setArgsByQuery } ) {
     const { name, service, id, params } = query
-    // need to clone args to check prevArgs == nextArgs,
-    // because feathers mutates the arguments during a request.
-    setArgsByQuery(name, clone({ id, params }))
+    const args = clone({ id, params })
     const method = id ? 'get' : 'find'
     const action = actions[service][method]
     const cid = id ? action(id, params) : action(params)
+    // need to clone args to check prevArgs == nextArgs,
+    // because feathers mutates the arguments during a request.
+    setArgsByQuery(name, args)
     setCidByQuery(name, cid)
   }
 
