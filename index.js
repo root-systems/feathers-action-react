@@ -59,6 +59,7 @@ const hasProperties = curry((propertyTypes, object) => {
         type,
         required = false
       } = propertyType
+      if (!required) return true
       const objectValue = object[propertyName]
       const isType = type(objectValue)
       return isType
@@ -309,7 +310,7 @@ function createReduxConnector (options) {
 
   const reduxConnector = connectRedux(
     function mapStateToProps (state, props) {
-      // use the original props passed into the top-level 
+      // use the original props passed into the top-level
       const selected = selector(state, props.ownProps)
       // use react state handlers
       const querys = getQuerys(state, props)
@@ -405,4 +406,3 @@ function createFeathersConnector (options) {
 
   return feathersConnector
 }
-
