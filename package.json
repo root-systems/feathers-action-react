@@ -41,9 +41,9 @@
     "es2040": "^1.2.6",
     "incremental-id": "^1.0.0",
     "ramda": "^0.23.0",
-    "react": "^15.5.4",
+    "react": "^16.4.1",
     "react-redux": "^5.0.4",
     "recompose": "^0.24.0",
-    "redux": "^3.6.0"
+    "redux": "^4.0.0"
   }
 }
